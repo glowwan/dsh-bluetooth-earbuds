@@ -1,0 +1,63 @@
+{
+  "name": "dsh-bluetooth-earbuds",
+  "version": "1.0.2",
+  "description": "Use Bluetooth earbuds as a system-wide voice dictation and Backspace remote for AI apps and agents on Windows.",
+  "type": "module",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "helper/EarbudHelper.cs",
+    "locale/*.json",
+    "icon.svg",
+    "README.md",
+    "README.en.md",
+    "LICENSE",
+    "PUBLISHING.md"
+  ],
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "bluetooth",
+    "earbuds",
+    "voice",
+    "dictation",
+    "speech",
+    "windows",
+    "ai-agent",
+    "accessibility"
+  ],
+  "license": "MIT",
+  "author": "dsh-bluetooth-earbuds contributors",
+  "homepage": "https://github.com/glowwan/dsh-bluetooth-earbuds",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/glowwan/dsh-bluetooth-earbuds.git"
+  },
+  "bugs": {
+    "url": "https://github.com/glowwan/dsh-bluetooth-earbuds/issues"
+  },
+  "os": [
+    "win32"
+  ],
+  "engines": {
+    "dsh": ">=0.2.1-rc.1 <0.3.0-0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": []
+    }
+  }
+}

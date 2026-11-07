@@ -1,0 +1,10 @@
+node_modules/
+*.exe
+*.log
+*.wav
+*.tmp
+.DS_Store
+state.json
+actionprobe.txt
+volume*.txt
+*.tgz

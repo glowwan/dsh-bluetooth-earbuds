@@ -1,0 +1,11 @@
+- insert:
+    - id: bluetooth-earbuds
+      name: 'dsh-bluetooth-earbuds'
+      config:
+        enabled: true
+        leftKey: VolumeDown
+        rightKey: VolumeUp
+        leftAction: voice
+        rightAction: backspace
+        backspaceCount: 1
+        swallow: true
