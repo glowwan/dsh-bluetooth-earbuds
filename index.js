@@ -29,6 +29,10 @@ try {
 }
 const globalShortcut = electron && electron.globalShortcut ? electron.globalShortcut : undefined
 
+// The settings page talks to the Host over this service. Wait for it instead
+// of racing plugin activation and silently skipping route registration.
+export const inject = ['webServer']
+
 const HERE = dirname(fileURLToPath(import.meta.url))
 const ROUTE_PREFIX = '/bluetooth-earbuds'
 const HELPER_SOURCE = join(HERE, 'helper', 'EarbudHelper.cs')

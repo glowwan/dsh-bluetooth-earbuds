@@ -25,7 +25,7 @@ npm 发布可选；市场可以直接从 GitHub 安装。
 ```powershell
 git init -b main
 git add -A
-git commit -m "dsh-bluetooth-earbuds 1.0.2"
+git commit -m "dsh-bluetooth-earbuds 1.0.3"
 gh repo create glowwan/dsh-bluetooth-earbuds --public --source . --remote origin --push
 gh repo edit glowwan/dsh-bluetooth-earbuds --add-topic dsh-plugin
 ```

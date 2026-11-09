@@ -1,6 +1,6 @@
 {
   "name": "dsh-bluetooth-earbuds",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Use Bluetooth earbuds as a system-wide voice dictation and Backspace remote for AI apps and agents on Windows.",
   "type": "module",
   "exports": {

@@ -52,6 +52,7 @@ window.__ModuleLoader__.load({
         privacy: 'Keys are handled locally. The plugin does not record or upload audio; Windows performs speech recognition.',
         lastLearned: 'Learned',
         error: 'Something went wrong',
+        loading: 'Reading status…',
         renderError: 'The settings panel failed to render.',
         dismiss: 'Dismiss',
         voiceTestHint: 'Win+H will be sent in 2.5 seconds. Click into the text field where you want to dictate now.',
@@ -119,6 +120,7 @@ window.__ModuleLoader__.load({
         privacy: '按键在本地处理。插件不会录音或上传音频；语音识别由 Windows 完成。',
         lastLearned: '已学习',
         error: '出现问题',
+        loading: '正在读取状态…',
         renderError: '设置页面渲染失败。',
         dismiss: '关闭',
         voiceTestHint: '2.5 秒后会发送 Win+H。现在请点击要语音输入的文本框。',
@@ -437,7 +439,9 @@ window.__ModuleLoader__.load({
         }
       }, [status?.stateFile])
 
-      const statusText = !status ? t('listening') : !status.supported ? t('unsupported') : running ? t('listening') : t('stopped')
+      const statusText = !status
+        ? (notice?.kind === 'error' ? t('error') : t('loading'))
+        : !status.supported ? t('unsupported') : running ? t('listening') : t('stopped')
       const statusSub = running
         ? (conflict ? t('conflict') : (lastEvent ? `${t('lastEvent')}: ${lastEvent.side === 'left' ? t('leftTitle') : t('rightTitle')} · ${keyName(t, lastEvent.key)}` : t('noEvent')))
         : (helper?.compileError || lastError || t('helperStopped'))
