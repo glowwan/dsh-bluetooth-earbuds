@@ -19,7 +19,8 @@
     "README.md",
     "README.en.md",
     "LICENSE",
-    "PUBLISHING.md"
+    "PUBLISHING.md",
+    "CHANGELOG.md"
   ],
   "keywords": [
     "dsh",

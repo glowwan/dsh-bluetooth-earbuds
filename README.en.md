@@ -116,6 +116,20 @@ If your earbud vendor app can map a **single or double tap** to volume down/up, 
 | Volume bar flashes | Windows system feedback; the plugin restores the level but cannot hide the bar. |
 | Some apps do not react | If the target runs elevated, the plugin needs matching elevation. |
 
+## Changelog
+
+Latest version **v1.0.4** (2026-11-18) fixes a major defect: earlier versions treated any system volume change as an earbud gesture, so pressing the keyboard volume key, dragging the Windows volume slider, or another app changing the volume could fire voice typing or Backspace and then revert the level. Now only a volume change with no accompanying volume-key event counts as a gesture, and that fallback is off by default.
+
+- Full record: [CHANGELOG.md](CHANGELOG.md)
+- Releases and tarballs: [Releases](https://github.com/glowwan/dsh-bluetooth-earbuds/releases)
+
+| Version | Highlights |
+| --- | --- |
+| v1.0.4 | No longer hijacks the system volume; key-less fallback is opt-in and off by default; default mapping back to media keys |
+| v1.0.3 | Fixed the settings page HTTP 404 (wait for the web server before registering routes) |
+| v1.0.2 | First public release after the market listing merged, with a prebuilt tarball |
+| v1.0.0 | Initial release: left-earbud voice, right-earbud Backspace, settings page, helper |
+
 ## Development
 
 - `index.js` - Host: helper lifecycle, state file, settings HTTP API, agent tool.

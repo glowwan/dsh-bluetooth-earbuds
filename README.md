@@ -113,6 +113,20 @@ dsh plugin --profile desktop add github:glowwan/dsh-bluetooth-earbuds
 | 音量条每次都会闪 | 这是 Windows 对音量键的系统提示；插件会还原音量，但无法完全隐藏系统音量条。 |
 | 对某些程序无效 | Windows 不允许普通权限程序向管理员权限窗口注入按键；以相同权限运行目标程序，或不要以管理员身份运行目标程序。 |
 
+## 版本更新
+
+最新版本 **v1.0.4**（2026-11-18）修复了一个重大缺陷：旧版本把任何系统音量变化都当成耳机手势，导致**按键盘音量键、拖动 Windows 音量滑条、或别的程序调音量时会误触发语音输入/回删，并把音量改回去**。现在只有「没有伴随任何音量键事件」的音量变化才算手势，且该兜底默认关闭。
+
+- 完整记录：[CHANGELOG.md](CHANGELOG.md)
+- 发布包与说明：[Releases](https://github.com/glowwan/dsh-bluetooth-earbuds/releases)
+
+| 版本 | 要点 |
+| --- | --- |
+| v1.0.4 | 不再劫持系统音量；无按键音量兜底改为可选、默认关闭；默认映射改回媒体键 |
+| v1.0.3 | 修复设置页 HTTP 404（等 Web 服务就绪再注册路由） |
+| v1.0.2 | 市场收录后的首个公开版本，提供预构建 tarball |
+| v1.0.0 | 首个版本：左耳语音、右耳回删、设置页、助手 |
+
 ## 文件
 
 - `index.js` — Host：助手生命周期、状态文件、设置页 API、Agent 工具。
@@ -120,3 +134,4 @@ dsh plugin --profile desktop add github:glowwan/dsh-bluetooth-earbuds
 - `helper/EarbudHelper.cs` — Windows 助手源码。
 - `helper/EarbudHelper.exe` — 已编译助手；源码更新时 Host 会自动重编译。
 - `cordis.patch.yml` — Bundle 的插件行。
+- `CHANGELOG.md` — 版本记录。
