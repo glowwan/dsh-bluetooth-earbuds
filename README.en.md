@@ -78,6 +78,10 @@ The TWS earbuds used for testing:
 
 Default mapping: **left volume-down -> voice, right volume-up -> Backspace**. The helper waits for the gesture to settle, fires exactly once, restores the volume, and applies a 1.6-second cooldown. This prevents a slow triple-tap from firing twice and immediately toggling `Win+H` closed. The Windows volume bar may flash briefly; the volume level is restored.
 
+> **Fixed in v1.0.4**: earlier versions treated *any* system volume change as an earbud gesture, so pressing the keyboard volume key, dragging the Windows volume slider, or another app changing the volume could fire voice typing or Backspace and then revert your volume. Now only a volume change with **no accompanying volume-key event** counts as a gesture; real volume key presses are handled by Windows normally and are never intercepted or reverted. That fallback is off by default and can be enabled in Settings as **Key-less volume gestures (fallback)**.
+
+> Note: if you map an earbud to a volume key, the keyboard's volume keys will fire the same action, because they send the same key. Use media keys instead, or turn shortcuts off.
+
 If your earbud vendor app can map a **single or double tap** to volume down/up, you can use a gentler gesture. The plugin only cares about the resulting key, not the number of taps.
 
 ## Privacy and permissions
@@ -104,7 +108,8 @@ If your earbud vendor app can map a **single or double tap** to volume down/up, 
 | Symptom | Fix |
 | --- | --- |
 | Status says Not running | Click **Restart helper** and read the error. |
-| Triple-tap only shows the volume bar | Confirm left/right are mapped to Volume down/up and the helper is listening; avoid 0%/100% volume. |
+| Triple-tap only shows the volume bar | Confirm left/right are mapped to Volume down/up and the helper is listening; avoid 0%/100% volume. If your earbuds send no key events at all, enable **Key-less volume gestures (fallback)**. |
+| Voice typing or Backspace fires while changing the volume | This was the v1.0.3 and earlier defect, fixed in v1.0.4. Upgrade and confirm the fallback switch is off. |
 | Left triggers voice but no text | Test `Win+H` manually; check online speech recognition and the default microphone. |
 | Right does not delete | The cursor must be in a text field with text before it. |
 | Long press does nothing | Long press sends no Windows event; it cannot be detected. |

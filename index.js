@@ -41,12 +41,17 @@ const CSC = 'C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\csc.exe'
 
 const DEFAULT_CONFIG = Object.freeze({
   enabled: true,
-  leftKey: 'VolumeDown',
-  rightKey: 'VolumeUp',
+  leftKey: 'MediaPlayPause',
+  rightKey: 'MediaNextTrack',
   leftAction: 'voice',
   rightAction: 'backspace',
   backspaceCount: 1,
   swallow: true,
+  // Fallback for earbuds whose firmware changes the host volume WITHOUT
+  // sending a key event. Off by default: when on, key-less volume changes
+  // are treated as gestures and reverted. Real volume key presses are
+  // always attributed to the key path and never reverted.
+  volumeGesture: false,
 })
 
 const KEY_NAMES = new Set([
@@ -86,6 +91,7 @@ function sanitize(candidate, fallback) {
   if (candidate && typeof candidate === 'object') {
     if (typeof candidate.enabled === 'boolean') next.enabled = candidate.enabled
     if (typeof candidate.swallow === 'boolean') next.swallow = candidate.swallow
+    if (typeof candidate.volumeGesture === 'boolean') next.volumeGesture = candidate.volumeGesture
     const leftKey = normalizeKey(candidate.leftKey)
     const rightKey = normalizeKey(candidate.rightKey)
     if (leftKey) next.leftKey = leftKey
@@ -349,10 +355,12 @@ class EarbudService {
       }
       return
     }
-    if (message.type === 'event') {      const event = {
+    if (message.type === 'event') {
+      const event = {
         side: message.side === 'right' ? 'right' : 'left',
         key: typeof message.key === 'string' ? message.key : 'unknown',
         action: typeof message.action === 'string' ? message.action : 'none',
+        source: message.source === 'volume' ? 'volume' : 'key',
         at: new Date().toISOString(),
       }
       this.lastEvent = event
@@ -637,6 +645,7 @@ export function apply(ctx, config = {}) {
           rightAction: { type: 'string', enum: ['voice', 'backspace', 'enter', 'space', 'tab', 'escape', 'delete', 'none'] },
           backspaceCount: { type: 'integer', minimum: 1, maximum: 20 },
           swallow: { type: 'boolean', description: 'Block the original media key so music does not also react.' },
+          volumeGesture: { type: 'boolean', description: 'Fallback: treat key-less system volume changes as earbud gestures and restore the volume afterwards. Real volume key presses are never intercepted. Keep off unless the earbuds send no key events.' },
           enabled: { type: 'boolean' },
         },
         required: ['action'],

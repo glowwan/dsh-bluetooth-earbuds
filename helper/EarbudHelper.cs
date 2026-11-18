@@ -23,6 +23,8 @@ internal static class EarbudHelper
     private const int WH_KEYBOARD_LL = 13;
     private const int WM_KEYDOWN = 0x0100;
     private const int WM_SYSKEYDOWN = 0x0104;
+    private const int WM_KEYUP = 0x0101;
+    private const int WM_SYSKEYUP = 0x0105;
     private const int WM_INPUT = 0x00FF;
     private const uint RID_INPUT = 0x10000003;
     private const uint RIDEV_INPUTSINK = 0x00000100;
@@ -250,9 +252,53 @@ internal static class EarbudHelper
     private static string _learnSide = "";
 
     private static int _pendingVk;
+    private static int _pendingSource; // 0 = unknown, 1 = real key event (hook/raw/poll)
     private static int _lastVk;
+    private static int _lastSource;
     private static DateTime _lastHandledUtc = DateTime.MinValue;
     private static bool _stopping = false;
+
+    // Volume-gesture attribution: the hook/raw/poll paths mark every real
+    // VK_VOLUME_* key press here. The volume-level watcher only treats a level
+    // change as an earbud gesture when NO key event accompanied it (earbuds
+    // whose firmware changes the host volume without sending a key). A plain
+    // keyboard volume press therefore never triggers an action and is never
+    // reverted.
+    // Tick (Environment.TickCount, 32-bit wrapping) of the last real
+    // VK_VOLUME_* event seen by each path. Read/written under Gate so the
+    // hook, raw-input, poller and watcher agree on one clock.
+    private static int _lastVolKeyUpTick;
+    private static int _lastVolKeyDownTick;
+    // Volume-key events seen by the poller but NOT by the hook/raw paths mean
+    // the hook chain is being skipped (Chromium foreground). In that state the
+    // watcher cannot attribute level changes to keys, so it stays passive.
+    private static int _lastVolKeyPollOnlyTick;
+    private static volatile bool _volumeGesture = false;
+
+    private static void MarkVolKey(bool down)
+    {
+        lock (Gate)
+        {
+            if (down) _lastVolKeyDownTick = Environment.TickCount;
+            else _lastVolKeyUpTick = Environment.TickCount;
+        }
+    }
+
+    private static int VolKeyAge(bool down)
+    {
+        lock (Gate)
+        {
+            return unchecked(Environment.TickCount - (down ? _lastVolKeyDownTick : _lastVolKeyUpTick));
+        }
+    }
+
+    private static int VolPollOnlyAge()
+    {
+        lock (Gate)
+        {
+            return unchecked(Environment.TickCount - _lastVolKeyPollOnlyTick);
+        }
+    }
 
     private static readonly int[] MediaKeys = new int[]
     {
@@ -354,11 +400,21 @@ internal static class EarbudHelper
                         if (read == size)
                         {
                             var raw = (RAWINPUT)Marshal.PtrToStructure(buffer, typeof(RAWINPUT));
-                            if (raw.header.dwType == RIM_TYPEKEYBOARD
-                                && (raw.keyboard.Message == WM_KEYDOWN || raw.keyboard.Message == WM_SYSKEYDOWN)
-                                && (raw.keyboard.Flags & 1) == 0)
+                            if (raw.header.dwType == RIM_TYPEKEYBOARD)
                             {
-                                SubmitKey(raw.keyboard.VKey);
+                                bool rawDown = (raw.keyboard.Message == WM_KEYDOWN || raw.keyboard.Message == WM_SYSKEYDOWN)
+                                    && (raw.keyboard.Flags & 1) == 0;
+                                bool rawUp = raw.keyboard.Message == WM_KEYUP || raw.keyboard.Message == WM_SYSKEYUP
+                                    || (raw.keyboard.Flags & 1) != 0;
+                                if (raw.keyboard.VKey == 0xAE || raw.keyboard.VKey == 0xAF)
+                                {
+                                    if (rawDown) MarkVolKey(true);
+                                    if (rawUp) MarkVolKey(false);
+                                }
+                                if (rawDown)
+                                {
+                                    SubmitKey(raw.keyboard.VKey);
+                                }
                             }
                         }
                     }
@@ -379,18 +435,33 @@ internal static class EarbudHelper
     // Keep this callback microscopic: no locks, strings, logging, or allocations.
     private static IntPtr HookCallback(int nCode, IntPtr wParam, IntPtr lParam)
     {
-        if (nCode >= 0 && (wParam == (IntPtr)WM_KEYDOWN || wParam == (IntPtr)WM_SYSKEYDOWN))
+        if (nCode >= 0)
         {
-            var info = (KBDLLHOOKSTRUCT)Marshal.PtrToStructure(lParam, typeof(KBDLLHOOKSTRUCT));
-            if (info.dwExtraInfo.ToUInt64() != INJECT_TAG)
+            bool down = wParam == (IntPtr)WM_KEYDOWN || wParam == (IntPtr)WM_SYSKEYDOWN;
+            bool up = wParam == (IntPtr)WM_KEYUP || wParam == (IntPtr)WM_SYSKEYUP;
+            if (down || up)
             {
-                int vk = (int)info.vkCode;
-                bool learning = _learning;
-                bool mine = _enabled && (vk == _leftVk || vk == _rightVk);
-                if (learning || mine)
+                var info = (KBDLLHOOKSTRUCT)Marshal.PtrToStructure(lParam, typeof(KBDLLHOOKSTRUCT));
+                if (info.dwExtraInfo.ToUInt64() != INJECT_TAG)
                 {
-                    SubmitKey(vk);
-                    if (!learning && mine && _swallow) return (IntPtr)1;
+                    int vk = (int)info.vkCode;
+                    // Attribution for the volume watcher: any real volume key
+                    // event (even when unmapped) marks the level change as
+                    // key-driven so the watcher leaves it alone.
+                    if (vk == 0xAE || vk == 0xAF)
+                    {
+                        MarkVolKey(down);
+                    }
+                    if (down)
+                    {
+                        bool learning = _learning;
+                        bool mine = _enabled && (vk == _leftVk || vk == _rightVk);
+                        if (learning || mine)
+                        {
+                            SubmitKey(vk);
+                            if (!learning && mine && _swallow) return (IntPtr)1;
+                        }
+                    }
                 }
             }
         }
@@ -399,7 +470,17 @@ internal static class EarbudHelper
 
     private static void SubmitKey(int vk)
     {
+        SubmitKey(vk, 1);
+    }
+
+    private static void SubmitKey(int vk, int source)
+    {
         if (vk <= 0) return;
+        if (vk == 0xAE || vk == 0xAF)
+        {
+            MarkVolKey(true);
+        }
+        Interlocked.Exchange(ref _pendingSource, source);
         Interlocked.CompareExchange(ref _pendingVk, vk, 0);
     }
 
@@ -459,6 +540,8 @@ internal static class EarbudHelper
         DateTime nextVolumeReport = DateTime.MinValue;
         float gestureStart = 0;
         bool gestureActive = false;
+        int gestureFromTick = 0;
+        int gestureToTick = 0;
         DateTime gestureChanged = DateTime.MinValue;
         DateTime cooldownUntil = DateTime.MinValue;
         DateTime nextVolumeCheck = DateTime.MinValue;
@@ -478,6 +561,13 @@ internal static class EarbudHelper
                     down.TryGetValue(key, out wasDown);
                     if ((isDown && !wasDown) || (wasPressed && !isDown && !wasDown))
                     {
+                        if (key == 0xAE || key == 0xAF)
+                        {
+                            if (VolKeyAge(true) > 400 && VolKeyAge(false) > 400)
+                            {
+                                lock (Gate) { _lastVolKeyPollOnlyTick = Environment.TickCount; }
+                            }
+                        }
                         SubmitKey(key);
                     }
                     down[key] = isDown;
@@ -507,28 +597,68 @@ internal static class EarbudHelper
                             nextVolumeReport = DateTime.UtcNow.AddMilliseconds(700);
                         }
 
-                        if (DateTime.UtcNow < cooldownUntil)
+                        // The watcher is a fallback for earbuds whose firmware
+                        // changes the host volume WITHOUT sending a key event.
+                        // It must never fight real volume control:
+                        //  - disabled entirely unless volumeGesture is on;
+                        //  - a gesture whose level change happened around a real
+                        //    VK_VOLUME_* key event (keyboard, headset buttons,
+                        //    the Windows volume flyout) is left alone;
+                        //  - changes larger than one key step (slider drags,
+                        //    app-driven jumps) are left alone.
+                        bool watcherOn = _volumeGesture && (_enabled || _learning);
+                        int nowTick = Environment.TickCount;
+                        bool keyRecent = VolKeyAge(true) < 700 || VolKeyAge(false) < 700;
+                        // If volume keys are reaching us only through the poller,
+                        // the hook/raw attribution is blind (Chromium focus):
+                        // stay passive rather than risk reverting real control.
+                        bool hookBlind = VolPollOnlyAge() < 15000;
+
+                        if (!watcherOn || keyRecent || hookBlind)
+                        {
+                            // Passive: track the level, never write it back.
+                            gestureActive = false;
+                            volumeLast = level;
+                        }
+                        else if (DateTime.UtcNow < cooldownUntil)
                         {
                             // A slow three-tap can produce more than one volume
-                            // burst. Ignore bursts during the cooldown and keep
-                            // the user's original volume stable.
-                            if (Math.Abs(level - volumeLast) > 0.0025f)
+                            // burst. Revert unattributed (key-less) bursts and
+                            // keep extending the cooldown while taps keep coming,
+                            // so the restore target stays the pre-gesture level.
+                            if (Math.Abs(level - volumeLast) > 0.0025f && Math.Abs(level - gestureStart) <= 0.25f
+                                && !KeyNearWindow(nowTick, nowTick))
                             {
                                 Guid context = Guid.Empty;
                                 volume.SetMasterVolumeLevelScalar(gestureStart, ref context);
                                 volumeLast = gestureStart;
+                                gestureChanged = DateTime.UtcNow;
+                                cooldownUntil = DateTime.UtcNow.AddMilliseconds(1600);
+                            }
+                            else
+                            {
+                                volumeLast = level;
                             }
                         }
                         else
                         {
                             float delta = level - volumeLast;
-                            if (Math.Abs(delta) > 0.0025f)
+                            if (Math.Abs(delta) > 0.08f)
+                            {
+                                // Too large for earbud key steps: a deliberate
+                                // user/app change. Adopt it, do not revert.
+                                gestureActive = false;
+                                volumeLast = level;
+                            }
+                            else if (Math.Abs(delta) > 0.0025f)
                             {
                                 if (!gestureActive)
                                 {
                                     gestureActive = true;
                                     gestureStart = volumeLast;
+                                    gestureFromTick = nowTick;
                                 }
+                                gestureToTick = nowTick;
                                 volumeLast = level;
                                 gestureChanged = DateTime.UtcNow;
                             }
@@ -537,7 +667,9 @@ internal static class EarbudHelper
                                 gestureActive = false;
                                 float net = level - gestureStart;
                                 int direction = net < -0.004f ? -1 : net > 0.004f ? 1 : 0;
-                                if (direction != 0)
+                                bool attributed = KeyNearWindow(gestureFromTick, gestureToTick);
+                                Emit("{\"type\":\"gesture\",\"net\":" + net.ToString("F4") + ",\"attributed\":" + (attributed ? "true" : "false") + ",\"from\":" + gestureStart.ToString("F4") + ",\"to\":" + level.ToString("F4") + ",\"kdAge\":" + VolKeyAge(true) + ",\"kuAge\":" + VolKeyAge(false) + "}");
+                                if (direction != 0 && !attributed)
                                 {
                                     int vk = direction < 0 ? 0xAE : 0xAF;
                                     bool mapped;
@@ -547,8 +679,8 @@ internal static class EarbudHelper
                                     }
                                     if (_learning || (_enabled && mapped))
                                     {
-                                        HandleKey(vk);
-                                        // Use the volume keys as gestures, then put the
+                                        HandleKey(vk, 2);
+                                        // Key-less earbud gesture: put the
                                         // user's volume back where it was.
                                         Guid context = Guid.Empty;
                                         volume.SetMasterVolumeLevelScalar(gestureStart, ref context);
@@ -559,6 +691,10 @@ internal static class EarbudHelper
                                     {
                                         volumeLast = level;
                                     }
+                                }
+                                else
+                                {
+                                    volumeLast = level;
                                 }
                             }
                         }
@@ -573,7 +709,41 @@ internal static class EarbudHelper
         catch { }
     }
 
+    // True when a real VK_VOLUME_* key event happened around the time the
+    // volume actually moved between `from` and `to` (per the sample ring).
+    // This attributes a finalized gesture to the key press that caused it,
+    // even though finalization happens ~500ms after the last level change.
+    // True when a real VK_VOLUME_* key event happened around the moment the
+    // volume actually moved. `fromTick`..`toTick` is the span in which the
+    // level changed (first change .. last change of the gesture), which is
+    // what a key press would bracket; finalization happens ~500ms later and
+    // must not be used as the reference point.
+    private static bool KeyNearWindow(int fromTick, int toTick)
+    {
+        int kd, ku;
+        lock (Gate) { kd = _lastVolKeyDownTick; ku = _lastVolKeyUpTick; }
+        if (kd == 0 && ku == 0) return false;
+        const int window = 900;
+        return InWindow(kd, fromTick, toTick, window)
+            || InWindow(ku, fromTick, toTick, window);
+    }
+
+    private static bool InWindow(int tick, int fromTick, int toTick, int window)
+    {
+        if (tick == 0) return false;
+        // Signed wrapping comparisons: TickCount is a 32-bit wrapping clock.
+        int toFirst = unchecked(tick - fromTick);
+        int toLast = unchecked(tick - toTick);
+        return toFirst >= -window && toLast <= window;
+    }
+
     private static void HandleKey(int vk)
+    {
+        HandleKey(vk, 1);
+    }
+
+    // source: 1 = real key event (hook/raw/poll), 2 = key-less volume watcher.
+    private static void HandleKey(int vk, int source)
     {
         string name = KeyName(vk);
         bool learning;
@@ -611,12 +781,16 @@ internal static class EarbudHelper
         }
 
         var now = DateTime.UtcNow;
-        if (vk == _lastVk && (now - _lastHandledUtc).TotalMilliseconds < 160) return;
+        // Debounce per source: hook/raw/poll can report the same physical press
+        // up to three times, but a key-less watcher gesture must not be eaten
+        // by a key event that happened moments earlier (and vice versa).
+        if (vk == _lastVk && source == _lastSource && (now - _lastHandledUtc).TotalMilliseconds < 160) return;
         _lastVk = vk;
+        _lastSource = source;
         _lastHandledUtc = now;
 
         string side = isLeft ? "left" : "right";
-        Emit("{\"type\":\"event\",\"side\":" + Json(side) + ",\"key\":" + Json(name) + ",\"vk\":" + vk.ToString() + ",\"action\":" + Json(action) + "}");
+        Emit("{\"type\":\"event\",\"side\":" + Json(side) + ",\"key\":" + Json(name) + ",\"vk\":" + vk.ToString() + ",\"action\":" + Json(action) + ",\"source\":" + (source == 2 ? "\"volume\"" : "\"key\"") + "}");
         if (action != "none")
         {
             string captured = action;
@@ -708,6 +882,7 @@ internal static class EarbudHelper
                 ApplyConfig(line);
                 Emit("{\"type\":\"configured\",\"leftKey\":" + Json(_leftKey) + ",\"rightKey\":" + Json(_rightKey)
                     + ",\"enabled\":" + (_enabled ? "true" : "false")
+                    + ",\"volumeGesture\":" + (_volumeGesture ? "true" : "false")
                     + ",\"hook\":" + (_hookInstalled ? "true" : "false")
                     + ",\"conflict\":" + (_leftVk == _rightVk ? "true" : "false") + "}");
             }
@@ -734,6 +909,8 @@ internal static class EarbudHelper
                 if (swallow == "true" || swallow == "false") _swallow = swallow == "true";
                 string enabled = GetRaw(json, "enabled");
                 if (enabled == "true" || enabled == "false") _enabled = enabled == "true";
+                string volumeGesture = GetRaw(json, "volumeGesture");
+                if (volumeGesture == "true" || volumeGesture == "false") _volumeGesture = volumeGesture == "true";
             }
             _leftVk = VkForKeyName(_leftKey);
             _rightVk = VkForKeyName(_rightKey);
